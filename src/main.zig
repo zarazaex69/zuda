@@ -1,21 +1,27 @@
 const std = @import("std");
 const print = std.debug.print;
 
+const CUdevice = i32;
+const CUcontext = *anyopaque;
+const CUmodule = *anyopaque;
+const CUfunction = *anyopaque;
+const CUdeviceptr = u64;
+
 extern fn cuInit(flags: u32) callconv(.c) i32;
 extern fn cuDriverGetVersion(version: *i32) callconv(.c) i32;
-extern fn cuDeviceGet(device: *i32, ordinal: i32) callconv(.c) i32;
-extern fn cuCtxCreate(ctx: *i32, flags: u32, device: i32) callconv(.c) i32;
-extern fn cuCtxDestroy(ctx: i32) callconv(.c) i32;
-extern fn cuModuleLoad(module: *i32, fname: [*:0]const u8) callconv(.c) i32;
-extern fn cuModuleLoadData(module: *i32, image: *const anyopaque) callconv(.c) i32;
-extern fn cuModuleUnload(module: i32) callconv(.c) i32;
-extern fn cuModuleGetFunction(func: *i32, module: i32, name: [*:0]const u8) callconv(.c) i32;
-extern fn cuMemAlloc(dptr: *u64, bytesize: u64) callconv(.c) i32;
-extern fn cuMemFree(dptr: u64) callconv(.c) i32;
-extern fn cuMemcpyHtoD(dst: u64, src: *const anyopaque, bytesize: u64) callconv(.c) i32;
-extern fn cuMemcpyDtoH(dst: *anyopaque, src: u64, bytesize: u64) callconv(.c) i32;
+extern fn cuDeviceGet(device: *CUdevice, ordinal: i32) callconv(.c) i32;
+extern fn cuCtxCreate(pctx: *CUcontext, flags: u32, dev: CUdevice) callconv(.c) i32;
+extern fn cuCtxDestroy(ctx: CUcontext) callconv(.c) i32;
+extern fn cuModuleLoad(module: *CUmodule, fname: [*:0]const u8) callconv(.c) i32;
+extern fn cuModuleLoadData(module: *CUmodule, image: *const anyopaque) callconv(.c) i32;
+extern fn cuModuleUnload(module: CUmodule) callconv(.c) i32;
+extern fn cuModuleGetFunction(hfunc: *CUfunction, hmod: CUmodule, name: [*:0]const u8) callconv(.c) i32;
+extern fn cuMemAlloc(dptr: *CUdeviceptr, bytesize: u64) callconv(.c) i32;
+extern fn cuMemFree(dptr: CUdeviceptr) callconv(.c) i32;
+extern fn cuMemcpyHtoD(dst: CUdeviceptr, src: *const anyopaque, bytesize: u64) callconv(.c) i32;
+extern fn cuMemcpyDtoH(dst: *anyopaque, src: CUdeviceptr, bytesize: u64) callconv(.c) i32;
 extern fn cuLaunchKernel(
-    f: i32,
+    f: CUfunction,
     gridDimX: u32,
     gridDimY: u32,
     gridDimZ: u32,
@@ -23,7 +29,7 @@ extern fn cuLaunchKernel(
     blockDimY: u32,
     blockDimZ: u32,
     sharedMemBytes: u32,
-    stream: i32,
+    stream: ?*anyopaque,
     kernelParams: ?[*]?*anyopaque,
     extra: ?[*]?*anyopaque,
 ) callconv(.c) i32;
@@ -56,9 +62,9 @@ fn initCuda() !void {
     print("-> SUCCESS\n", .{});
 }
 
-fn getDevice() !i32 {
+fn getDevice() !CUdevice {
     print("[CUDA] Querying device 0 ", .{});
-    var device: i32 = 0;
+    var device: CUdevice = 0;
     const result = cuDeviceGet(&device, 0);
     if (result != 0) {
         print("-> FAILED (code={})\n", .{result});
@@ -68,45 +74,45 @@ fn getDevice() !i32 {
     return device;
 }
 
-fn createContext(device: i32) !i32 {
+fn createContext(device: CUdevice) !CUcontext {
     print("[CUDA] Creating context for device {} ", .{device});
-    var ctx: i32 = 0;
+    var ctx: CUcontext = undefined;
     const result = cuCtxCreate(&ctx, 0, device);
     if (result != 0) {
         print("-> FAILED (code={})\n", .{result});
         return error.CtxCreateFailed;
     }
-    print("-> SUCCESS (ctx={})\n", .{ctx});
+    print("-> SUCCESS (ctx={})\n", .{@intFromPtr(ctx)});
     return ctx;
 }
 
-fn loadModule() !i32 {
+fn loadModule() !CUmodule {
     print("[CUDA] Loading PTX module from memory ", .{});
-    var module: i32 = 0;
+    var module: CUmodule = undefined;
     const result = cuModuleLoadData(&module, ptx_kernel);
     if (result != 0) {
         print("-> FAILED (code={})\n", .{result});
         return error.ModuleLoadFailed;
     }
-    print("-> SUCCESS (module={})\n", .{module});
+    print("-> SUCCESS (module={})\n", .{@intFromPtr(module)});
     return module;
 }
 
-fn getKernel(module: i32) !i32 {
+fn getKernel(module: CUmodule) !CUfunction {
     print("[CUDA] Resolving kernel function 'add_kernel' ", .{});
-    var kernel: i32 = 0;
+    var kernel: CUfunction = undefined;
     const result = cuModuleGetFunction(&kernel, module, "add_kernel");
     if (result != 0) {
         print("-> FAILED (code={})\n", .{result});
         return error.GetFunctionFailed;
     }
-    print("-> SUCCESS (func={})\n", .{kernel});
+    print("-> SUCCESS (func={})\n", .{@intFromPtr(kernel)});
     return kernel;
 }
 
-fn allocDeviceMem() !u64 {
+fn allocDeviceMem() !CUdeviceptr {
     print("[CUDA] Allocating {} bytes on device ", .{@sizeOf(i32)});
-    var dptr: u64 = 0;
+    var dptr: CUdeviceptr = 0;
     const result = cuMemAlloc(&dptr, @sizeOf(i32));
     if (result != 0) {
         print("-> FAILED (code={})\n", .{result});
@@ -116,7 +122,7 @@ fn allocDeviceMem() !u64 {
     return dptr;
 }
 
-fn launchKernel(kernel: i32, dptr: u64) !void {
+fn launchKernel(kernel: CUfunction, dptr: CUdeviceptr) !void {
     print("[CUDA] Launching kernel (grid=1x1x1, block=1x1x1) ", .{});
     var dptr_mut = dptr;
     var kernel_params = [_]?*anyopaque{@ptrCast(@constCast(&dptr_mut))};
@@ -129,7 +135,7 @@ fn launchKernel(kernel: i32, dptr: u64) !void {
         1,
         1,
         0,
-        0,
+        null,
         &kernel_params,
         null,
     );
@@ -140,7 +146,7 @@ fn launchKernel(kernel: i32, dptr: u64) !void {
     print("-> SUCCESS\n", .{});
 }
 
-fn copyResult(dptr: u64) !i32 {
+fn copyResult(dptr: CUdeviceptr) !i32 {
     print("[CUDA] Copying result from device to host ", .{});
     var host_result: i32 = 0;
     const result = cuMemcpyDtoH(&host_result, dptr, @sizeOf(i32));
