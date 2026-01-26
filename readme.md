@@ -17,9 +17,13 @@ zuda is a trying to run cuda on zig
 make build
 
 # run
-./zig-out/bin/zuda
+./zig-out/bin/zuda 
 ```
-![zuda](assets/zuda.png)
+
+<p align="center">
+  <img src="assets/math.png" width="45%" />
+  <img src="assets/mandelbrot.png" width="42.3%" /> 
+</p>
 
 <div align="center">
 
