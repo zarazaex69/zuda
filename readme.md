@@ -19,6 +19,7 @@ make build
 # run
 ./zig-out/bin/zuda
 ```
+![zuda](assets/zuda.png)
 
 <div align="center">
 
